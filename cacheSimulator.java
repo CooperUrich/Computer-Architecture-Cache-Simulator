@@ -3,21 +3,22 @@ import java.util.Scanner;
 
 class cacheSimulator {
     // <CACHE_SIZE> <ASSOC> <REPLACEMENT> <WB>  <TRACE_FILE>  
+    int[][] LRU;
+    int[][] FIFO;
+    int[][] dirtyBit;
+    long[][] tagBits;
+    int numMisses = 0;
+    int numHits = 0;
+    int numMemoryReads = 0;
+    int numMemoryWrites = 0;
+    
     void simulation(int cache_size, int assoc, int replacement, int wb, String trace_file, int block_size) throws IOException {
         String replacement_algorithm;
         String line;
         long cacheAddress;
         int val, setNumber, num_sets;
         boolean isMiss;
-        int numMisses = 0;
-        int numHits = 0;
-        int numMemoryReads = 0;
-        int numMemoryWrites = 0;
         double miss_ratio = 0.0;
-        int[][] LRU;
-        int[][] FIFO;
-        int[][] dirtyBit;
-        long[][] tagBits;
 
         File file = new File(trace_file);
         BufferedReader trace = new BufferedReader(new FileReader(file));
@@ -49,17 +50,16 @@ class cacheSimulator {
             char operation = line.charAt(0);
             String address = line.substring(4, line.length() - 1);
             boolean isWriteBack = (wb == 1) ? true : false;
-             cacheAddress = Long.valueOf(address);
-            
+            cacheAddress = Long.valueOf(address);
             setNumber = (int)(cacheAddress / block_size) % num_sets;
-
             isMiss = true;
 
+            // For every associative cache
             for (int i = 0; i < assoc; i++) {
-                int temp = (int)cacheAddress / block_size;
+                int block = (int)cacheAddress / block_size;
                 
                 // If the current address is in the cache 
-                if (tagBits[setNumber][i] ==  temp) {
+                if (tagBits[setNumber][i] ==  block) {
                     isMiss = false;
                     numHits++;
 
@@ -75,8 +75,16 @@ class cacheSimulator {
             if (isMiss) {
                 numMisses++;
                 numMemoryReads++;
-                if (operation == 'W' && !isWriteBack)
+                if (operation == 'W' && !isWriteBack){
                     numMemoryWrites++;
+                }
+
+                if (replacement_algorithm == "LRU") {
+                    // Make Helper Function for LRU
+                    // Maybe Make some global varirbles or class variables
+                } else {
+                    // Make helper function for FIFO
+                }
                     
             }
 
@@ -85,6 +93,7 @@ class cacheSimulator {
 
     
     }
+   
 
     public static void main(String[] args) {
         int cache_size, assoc, replacement, wb;
