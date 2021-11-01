@@ -1,215 +1,272 @@
-import java.io.*;
-import java.math.BigInteger;
-class cacheSimulator {
-    static int[][] LRU;
-    static int[][] FIFO;
-    static int[][] dirtyBit;
-    static long[][] tagBits;
-    static int numMisses = 0;
-    static int numHits = 0;
-    static int numOperations = 0;
-    static int numMemoryReads = 0;
-    static int numMemoryWrites = 0;
-    static int block_size = 64;
-    static String replacement_algorithm;
+#include <iostream>
+#include <string>
+#include <fstream>
+using namespace std;
 
-    // <CACHE_SIZE> <ASSOC> <REPLACEMENT> <WB>  <TRACE_FILE>  
-    static void simulation(int cache_size, int assoc, int replacement, int wb, String trace_file) throws IOException {
-        String line;
-        // BigInteger cacheAddress;
-        Long cacheAddress;
-        int val, setNumber, num_sets, blockNumber = 0;
-        boolean isMiss;
-        double missRatio = 0.0;
-        File file = new File(trace_file);
-        BufferedReader trace = new BufferedReader(new FileReader(file));
+void lru_algorithm(int, int, char, int, long long unsigned int, int);
+void fifo_algorithm(int, int, char, int, long long unsigned int, int);
+void virtual_cache(int, int, int, int, string);
 
-        // Set the replacement algorithm
-        if (replacement == 1) {
-            replacement_algorithm = "FIFO";
-        } else {
-            replacement_algorithm = "LRU";
-        }
+long long unsigned int ** tag_addresses;
+int ** fifo;
+int ** lru;
+int ** dirty_bit;
+int miss_count = 0;
+int hit_count = 0;
+int operation_count = 0;
+int mem_reads = 0;
+int mem_writes = 0;
+// Block size for cache simulation, change when necessary 
+int block_size = 64;
 
-        // Num set definition
-        num_sets = cache_size / (assoc * block_size);
+void cache_simulator (int cache_size, int assoc, int replacement, int wb, string trace_file)
+{
+	string str, policy;
+	char operation;
+	int val, set_number, num_sets, idx;
+	bool miss;
+	double miss_ratio = 0.0;
+	long long unsigned int cache_address, block_number;
 
-        // Set number check
-        if (num_sets == 0) {
-            System.out.println("Error: \nSet size is invalid");
-            return;
-        }
+	num_sets = cache_size/(assoc*block_size);
+	
+	if (num_sets <= 0) {
+		throw "Can not allocate space for 0 num_sets";
+		return;
+	}
 
-        // Initialize the two dimensional arrays
-        LRU = new int[num_sets][assoc];
-        FIFO = new int[num_sets][assoc];
-        dirtyBit = new int[num_sets][assoc];
-        tagBits = new long[num_sets][assoc];
+	// Open trace file
+	ifstream trace(trace_file);
 
-        // precautionary null checks
-        if (LRU == null || FIFO == null || dirtyBit == null || tagBits == null) {
-            System.out.println("Error: \nunable to allocate cache");
-            return;
-        }
+	if (!trace.is_open()) {
+		throw "Error opening file";
+	}
 
-        while ((line = trace.readLine()) != null) {
-            // Read in the operation for each line
-            char operation = line.charAt(0);
-            
-            // Get the address from each command
-            String address = line.substring(4, line.length() - 1);
+	// Associativity can not be less than 1
+	if (assoc < 1) {
+		throw "Associativity is invalid, recompile";
+	}
 
-            // Assign write back
-            boolean isWriteBack = (wb == 1) ? true : false;
+	// create the all of the arrays to store all of the info
+	fifo = new int *[num_sets];
+	
+	lru = new int *[num_sets];
+	
+	dirty_bit = new int *[num_sets];
+	
+	tag_addresses = new long long unsigned int*[num_sets];
 
-            // Convert address to a long type cacheAddress (debating whether or not to use a Big Int)
-            cacheAddress = Long.parseLong(address); //new BigInteger(address, 16);
-            setNumber = (int)(cacheAddress / block_size) % num_sets;
-            isMiss = true;
+	// Assign replacement policy string
+	(replacement == 0) ? policy = "LRU" : policy = "FIFO";
 
-            // For every associative cache
-            for (int i = 0; i < assoc; i++) {
-                blockNumber = (int)(cacheAddress / block_size);
-                
-                // If the current address is in the cache 
-                if (tagBits[setNumber][i] == blockNumber) {
+	// Allocating all sets
+	for (int i = 0; i < num_sets; i++){
+		dirty_bit[i] = new int[assoc];
+		
+		lru[i] = new int[assoc];
+		
+		fifo[i] = new int[assoc];
+		
+		tag_addresses[i] = new long long unsigned int[assoc];
+		
+		// precautionary null checks
+		if (dirty_bit[i] == NULL || tag_addresses[i] == NULL || fifo[i] == NULL || lru[i] == NULL )
+			throw "Cache Memory could not be allocated.";
+	}
 
-                    // If the tag contains the set with the associative block
-                    // Then it is not a hit
-                    isMiss = false;
+	
 
-                    // Incremement number of hits and operations
-                    numHits++;
-                    numOperations++;
+	// Runs the cache on the trace file
+	while (!trace.eof()) {
+		
+		// Read in Operation ('W' or 'R') and cache address
+		trace >> operation >> str;
+		
+		// Convert the string to hex, and then long long int
+		cache_address = stoull(str, 0, 16);
+		
+		// Calculates the set and block numbers
+		block_number = (cache_address / block_size);
+		set_number = block_number % num_sets;
 
-                    if (isWriteBack) {
-                        dirtyBit[setNumber][i] = 1;
-                    } else {
-                        numMemoryWrites++;
-                    }
+		// cout << "Block: " << block_number << endl;
+		// cout << "Cache Address: " << (cache_address  / block_size)<< endl;
+		// Initialize to a miss, so it flags all hits
+		miss = true;
+		
+		// Tests for cache hits
+		for (int i = 0; i < assoc; i++){
+			
+			// If the block number is contained in the array, it is a hit
+			if (block_number == tag_addresses[set_number][i]){
+				
+				miss = false;
+				hit_count++;
+				operation_count++;
+				
+				// Cache hits on write operations
+				if (operation == 'W') {
+					
+					if (wb == 0) {
+						mem_writes++;
+					}
 
-                }
-            }
-            if (isMiss) {
+					else if (wb == 1) {
+						dirty_bit[set_number][i] = 1;
+					}
+				}
 
-                // Increment number of misses and operations
-                numMisses++;
-                numOperations++;
+				// Cache hit on LRU Replacement policy
+				if (policy == "LRU"){
+					
+					idx = lru[set_number][i];
 
-                // Reading from memory
-                numMemoryReads++;
+					for (int j = 0; j < assoc; j++){
+						
+						if (lru[set_number][j] <= idx) {
+							lru[set_number][j]++;
+						}
 
-                if (operation == 'W' && !isWriteBack){
-                    numMemoryWrites++;
-                }
+					}
+					lru[set_number][i] = 0;
+				}
+			}
+		}
 
-                if (replacement_algorithm == "LRU") {
-                    // Make Helper Function for LRU
-                    LRUAlgorithm(assoc, setNumber, operation, isWriteBack, blockNumber);
-                    // Maybe Make some global varirbles or class variables
-                } else {
-                    // Make helper function for FIFO
-                    FIFOAlgorithm(assoc, setNumber, operation, isWriteBack, blockNumber);
-                }
-                    
-            }
-        }   
-        // Calculate miss ration for final value
-        missRatio = (numMisses / (double)numOperations);
+		// Cache Miss
+		if (miss) {
+			// increment miss and operation for final ratio
+			miss_count++;
+			operation_count++;
+			// We read from memory on every miss
+			mem_reads++;
 
-        // Print out statistics
-        System.out.println("Miss Ratio: " + missRatio);
-        System.out.println("Number of Misses: " + numMisses);
-        System.out.println("Number of Hits: " + numHits);
-        System.out.println("Number of Writes to Memory: " + numMemoryWrites);
-        System.out.println("Number of Reads from Memory: " + numMemoryReads);
+			// Tests for miss on write-through policy
+			if (operation == 'W' && wb == 0) {
+				mem_writes++;
+			}
 
-        // Close trace file so there are no leaks
-        trace.close();
-    }
-    public static void LRUAlgorithm(int assoc, int setNumber, char operation, boolean isWriteBack, int block) {
-        int index = 0;
-        for (int i = 0; i < assoc; i++) {
-            if (LRU[setNumber][i] >= LRU[setNumber][index]){
-                index = i;
-            }
-        }
+			// Cache miss on LRU Replacement policy
+			if (policy == "LRU") {
+				// Gets the index of the max value (least recently used)
+				lru_algorithm(assoc, set_number, operation, wb, cache_address, block_number) ;
+			}
 
-        // Checks dirty bit to see if a memory write needs to occur
-        // This only occurs on write-back policy
-        if (dirtyBit[setNumber][index] == 1){
-            numMemoryWrites++;
-            dirtyBit[setNumber][index] = 0;
-        }
+			if (policy == "FIFO") {
+				// Gets the position of the earliest element to be placed
+				fifo_algorithm(assoc, set_number, operation, wb, cache_address, block_number);
+			}
 
-        // Tests if to replace the dirty bit (a new write operation is taking place) 
-        if (operation == 'W' && isWriteBack) {
-            dirtyBit[setNumber][index] = 1;
-        }
+		}
+		// On a chache hit
+		if (!miss) {
+			// Do nothing
+		}
+	}
 
-        // Replaces the cache tag with new tag
-        tagBits[setNumber][index] = block;
+	// Calculate Miss ration
+	miss_ratio = (double)miss_count / (double)operation_count;
 
-        // changes lru to match current state
-        for (int i = 0; i < assoc; i++) {
-            LRU[setNumber][i]++;
-        }
-        
-        LRU[setNumber][index] = 0;
+	// print out statistics
+	cout << "Miss ratio:\t" << miss_ratio << endl;
+	cout << "Memory reads:\t" <<  mem_reads << endl;
+	cout << "Memory writes:\t" <<  mem_writes << endl;
+	
+	// Close trace file so file is not corrupted
+	trace.close();
+	return;
+}
 
-    }
-    public static void FIFOAlgorithm(int assoc, int setNumber, char operation, boolean isWriteBack, int block) {
-        int index = 0;
-        for (int i = 0; i < assoc; i++) {
-            if (FIFO[setNumber][i] >= FIFO[setNumber][index]){
-                index = i;
-            }
-        }
-        // Checks dirty bit to see if a memory write needs to occur
-        // This only occurs on write-back policy
-        if (dirtyBit[setNumber][index] == 1){
-            numMemoryWrites++;
-            dirtyBit[setNumber][index] = 0;
-        }
-        // Tests if to replace the dirty bit (a new write operation is taking place) 
-        if (operation == 'W' && isWriteBack) {
-            dirtyBit[setNumber][index] = 1;
-        }
-        // Replaces the cache tag with the current block tag
-        tagBits[setNumber][index] = block;
-        // changes fifo to match current state
-        for (int i = 0; i < assoc; i++) {
-            FIFO[setNumber][i]++;
-        }
-        
-        FIFO[setNumber][index] = 0;
+void fifo_algorithm(int assoc, int set_number, char op, int wb, long long unsigned int cache_address, int block_number) {
+	int idx = 0;
+	
+	tag_addresses[set_number][idx] = block_number;
+	for (int i = 0; i < assoc; i++) {
+		
+		if (fifo[set_number][i] >= fifo[set_number][idx]) {
+			idx = i;
+		}
 
-    }
-    public static void main(String[] args) {
-        int cache_size, assoc, replacement, wb;
-        // Constant block_size;
-        String trace_file;
-        if (args.length < 5) {
-            System.out.println("Error, too few arguments");
-            return;
-        }
-        cache_size = Integer.parseInt(args[0]);
-        assoc = Integer.parseInt(args[1]);
-        replacement = Integer.parseInt(args[2]);
-        wb = Integer.parseInt(args[3]);
-        trace_file = args[4];
+	}
+	if (dirty_bit[set_number][idx] == 1){
+		mem_writes++;
+		dirty_bit[set_number][idx] = 0;
+	}
+	if (op == 'W' && wb == 1) {
+		dirty_bit[set_number][idx] = 1;
+	}
+	// increment the fifo structure to match state
+	for (int i = 0; i < assoc; i++) {
+		fifo[set_number][i]++;
+	}
 
-        if (replacement < 0 || replacement > 1 || wb < 0|| wb > 1) {
-            System.out.println("Input Error");
-            return;
-        }
-        try {
-            simulation(cache_size, assoc,  replacement, wb, trace_file);
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-        // System.out.println(cache_size + ", " + assoc + ", " + replacement + ", " + wb + ", " + trace_file);
+	// Set index to 0
+	fifo[set_number][idx] = 0;
+}
 
-    }
+void lru_algorithm(int assoc, int set_number, char op, int wb, long long unsigned int cache_address, int block_number) {
+	int idx = 0;
+	for (int i = 0; i < assoc; i++) {
+		// 
+		if (lru[set_number][i] >= lru[set_number][idx]) {
+			idx = i;
+		}
+
+	}
+
+	// Check to see if there needs to be write to memory
+	if (dirty_bit[set_number][idx] == 1) {
+		// If so, increment the memory writes
+		mem_writes++;
+		// Write it to memory
+		dirty_bit[set_number][idx] = 0;
+	}
+
+	// Tests if to replace the dirty bit (a new write operation is taking place) 
+	if (op == 'W' && wb == 1) { 
+		dirty_bit[set_number][idx] = 1;
+	}
+
+	// Replaces the cache tag with new tag
+	tag_addresses[set_number][idx] = block_number;
+
+	// changes lru to match current state
+	for (int i = 0; i < assoc; i++) {
+		lru[set_number][i]++;
+	}
+
+	// Set index to 0
+	lru[set_number][idx] = 0;
+}
+
+int main (int argc, char ** argv)
+{
+	// Block size is a constant and is not affected by CL arguments
+	int cache_size, assoc, replacement, wb;
+	string trace_file;
+
+	if (argc <= 5) {
+		cout << "Not enough arguments. Please recompile with the required arguments" << endl;
+		return 0;
+	}
+
+	// Take in arguments
+	cache_size = atoi(argv[1]);
+	
+	assoc = atoi(argv[2]);
+	
+	replacement = atoi(argv[3]);
+	
+	wb = atoi(argv[4]);
+	
+	trace_file = argv[5];
+
+	try {
+		cache_simulator(cache_size, assoc, replacement, wb, trace_file);
+	}
+	catch (const char *e) {
+		cout << e << endl;
+	}
+
+	return 0;
 }
